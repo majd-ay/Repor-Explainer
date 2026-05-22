@@ -1,0 +1,16 @@
+.env.txt
+.env
+*.env
+venv/
+.venv/
+*.db
+.env~
+..env.un~
+
+# General editor backups and undo files
+*~
+.*~
+*.un~
+.*.un~
+outputs/
+__pycache__/
