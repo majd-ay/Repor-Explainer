@@ -1,4 +1,5 @@
 import argparse
+from datetime import datetime
 from pathlib import Path
 
 from repo_scanner import (
@@ -26,6 +27,19 @@ def parse_args() -> argparse.Namespace:
         help="Maximum selected file content characters to add to the prompt.",
     )
     return parser.parse_args()
+
+
+def make_safe_filename(name: str) -> str:
+    safe_chars = []
+
+    for char in name:
+        if char.isalnum() or char in "-_.":
+            safe_chars.append(char)
+        else:
+            safe_chars.append("_")
+
+    safe_name = "".join(safe_chars).strip("_")
+    return safe_name or "repo"
 
 
 def print_prompt_debug_info(
@@ -58,6 +72,8 @@ def print_prompt_debug_info(
 def main() -> None:
     args = parse_args()
     repo_path = args.repo_path.resolve()
+    safe_repo_name = make_safe_filename(repo_path.name)
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
     if not repo_path.exists():
         print(f"Path does not exist: {repo_path}")
@@ -90,7 +106,9 @@ def main() -> None:
     print_prompt_debug_info(project_types, language_counts, tree, file_contents, prompt)
 
     if args.dry_run:
-        debug_prompt_file = output_dir / "debug_prompt.txt"
+        debug_prompt_file = (
+            output_dir / f"{safe_repo_name}_debug_prompt_{timestamp}.txt"
+        )
         debug_prompt_file.write_text(prompt, encoding="utf-8")
         print("Dry run complete. Gemini was not called.")
         print(f"Debug prompt saved to: {debug_prompt_file}")
@@ -103,7 +121,7 @@ def main() -> None:
         print(f"LLM request failed: {error}")
         raise SystemExit(1) from None
 
-    output_file = output_dir / "repo_report.md"
+    output_file = output_dir / f"{safe_repo_name}_{timestamp}.md"
     output_file.write_text(report, encoding="utf-8")
 
     print(f"Done. Report saved to: {output_file}")
