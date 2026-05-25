@@ -31,6 +31,11 @@ def parse_args() -> argparse.Namespace:
         default=250_000,
         help="Maximum selected file content characters to add to the prompt.",
     )
+    parser.add_argument(
+        "--public",
+        action="store_true",
+        help="Save generated files under public-outputs instead of outputs.",
+    )
     return parser.parse_args()
 
 
@@ -182,7 +187,7 @@ def main() -> None:
         file_contents=file_contents,
     )
 
-    output_dir = Path("outputs")
+    output_dir = Path("public-outputs" if args.public else "outputs")
     output_dir.mkdir(exist_ok=True)
 
     print_prompt_debug_info(
