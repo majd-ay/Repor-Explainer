@@ -20,10 +20,12 @@ Detected project types:
 Folder tree:
 ```text
 {tree}
+```
 
 Selected file contents:
-
+```text
 {file_contents}
+```
 
 Create a clear technical report in Markdown.
 

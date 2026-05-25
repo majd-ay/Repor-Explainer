@@ -86,8 +86,10 @@ def read_relevant_files(
     root: Path,
     max_file_size: int = 120_000,
     max_chars_per_file: int = 12_000,
+    max_total_chars: int = 250_000,
 ) -> str:
     chunks = []
+    total_chars = 0
 
     for path in sorted(root.rglob("*")):
         if should_ignore(path):
@@ -112,9 +114,15 @@ def read_relevant_files(
         if len(content) > max_chars_per_file:
             content = content[:max_chars_per_file] + "\n\n[File truncated]"
 
-        chunks.append(f"\n\n--- FILE: {rel} ---\n{content}")
+        chunk = f"\n\n--- FILE: {rel} ---\n{content}"
+        if total_chars + len(chunk) > max_total_chars:
+            chunks.append("\n\n[Stopped reading files: max_total_chars reached]")
+            break
 
-    return "\n".join(chunks)
+        chunks.append(chunk)
+        total_chars += len(chunk)
+
+    return "".join(chunks)
 
 def detect_project_types(root: Path) -> list[str]:
     detected = []
@@ -130,6 +138,12 @@ def detect_project_types(root: Path) -> list[str]:
 
     if any(root.rglob("*.csproj")) or any(root.rglob("*.sln")):
         detected.append(".NET / C#")
+    
+    if any(root.rglob("*.py")) and "Python" not in detected:
+        detected.append("Python")
+
+    if any(root.rglob("*.js")) and "Node.js / JavaScript / TypeScript" not in detected:
+        detected.append("JavaScript")
 
     if (root / "go.mod").exists():
         detected.append("Go")
