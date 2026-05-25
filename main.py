@@ -7,6 +7,8 @@ from repo_scanner import (
     read_relevant_files,
     detect_project_types,
     get_language_file_counts,
+    collect_auto_markdown_files,
+    collect_optional_markdown_files,
 )
 from prompts import build_repo_explanation_prompt
 from llm_client import ask_llm, get_model_name
@@ -42,9 +44,51 @@ def make_safe_filename(name: str) -> str:
     return safe_name or "repo"
 
 
+def choose_optional_markdown_files(root: Path, optional_files: list[Path]) -> set[Path]:
+    if not optional_files:
+        return set()
+
+    try:
+        choice = input("Optional Markdown files found. Include them? [none/all/select] ")
+    except EOFError:
+        print()
+        choice = ""
+
+    choice = choice.strip().lower()
+    if choice == "all":
+        return set(optional_files)
+
+    if choice != "select":
+        return set()
+
+    for index, path in enumerate(optional_files, start=1):
+        print(f"{index}. {path.relative_to(root)}")
+
+    try:
+        selected = input("Enter Markdown file numbers to include, comma-separated: ")
+    except EOFError:
+        print()
+        selected = ""
+
+    selected_files = set()
+    for item in selected.split(","):
+        item = item.strip()
+        if not item.isdigit():
+            continue
+
+        index = int(item)
+        if 1 <= index <= len(optional_files):
+            selected_files.add(optional_files[index - 1])
+
+    return selected_files
+
+
 def print_prompt_debug_info(
     project_types: list[str],
     language_counts: dict[str, int],
+    auto_markdown_count: int,
+    optional_markdown_count: int,
+    selected_optional_markdown_count: int,
     tree: str,
     file_contents: str,
     prompt: str,
@@ -63,6 +107,9 @@ def print_prompt_debug_info(
     print(f"Web files found: {language_counts['Web']}")
     print(f"SQL files found: {language_counts['SQL']}")
     print(f"Shell/script files found: {language_counts['Shell/script']}")
+    print(f"Auto-included Markdown files: {auto_markdown_count}")
+    print(f"Optional Markdown files found: {optional_markdown_count}")
+    print(f"Selected optional Markdown files: {selected_optional_markdown_count}")
     print(f"Folder tree character count: {len(tree)}")
     print(f"Selected file contents character count: {len(file_contents)}")
     print(f"Total prompt character count: {len(prompt)}")
@@ -86,10 +133,17 @@ def main() -> None:
     print("Scanning repo...")
     tree = build_tree(repo_path)
     language_counts = get_language_file_counts(repo_path)
+    auto_markdown_files = collect_auto_markdown_files(repo_path)
+    optional_markdown_files = collect_optional_markdown_files(repo_path)
+    selected_optional_markdown_files = choose_optional_markdown_files(
+        repo_path,
+        optional_markdown_files,
+    )
     project_types = detect_project_types(repo_path)
     file_contents = read_relevant_files(
         repo_path,
         max_total_chars=args.max_total_chars,
+        selected_optional_markdown_files=selected_optional_markdown_files,
     )
 
     print("Building prompt...")
@@ -103,7 +157,16 @@ def main() -> None:
     output_dir = Path("outputs")
     output_dir.mkdir(exist_ok=True)
 
-    print_prompt_debug_info(project_types, language_counts, tree, file_contents, prompt)
+    print_prompt_debug_info(
+        project_types,
+        language_counts,
+        len(auto_markdown_files),
+        len(optional_markdown_files),
+        len(selected_optional_markdown_files),
+        tree,
+        file_contents,
+        prompt,
+    )
 
     if args.dry_run:
         debug_prompt_file = (

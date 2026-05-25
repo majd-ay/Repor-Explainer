@@ -67,6 +67,12 @@ LANGUAGE_PATTERNS = {
     "Shell/script": ("*.sh", "*.bash", "*.ps1"),
 }
 
+AUTO_INCLUDE_MARKDOWN_NAMES = {
+    "changelog.md",
+    "contributing.md",
+    "license.md",
+}
+
 
 def should_ignore(path: Path) -> bool:
     return any(part in IGNORED_DIRS for part in path.parts)
@@ -91,6 +97,46 @@ def get_language_file_counts(root: Path) -> dict[str, int]:
         language: count_relevant_files(root, patterns)
         for language, patterns in LANGUAGE_PATTERNS.items()
     }
+
+
+def is_auto_include_markdown(path: Path, root: Path) -> bool:
+    rel = path.relative_to(root)
+    name = path.name.lower()
+
+    if path.suffix.lower() != ".md":
+        return False
+
+    if len(rel.parts) == 1 and (name == "readme.md" or name.startswith("readme.")):
+        return True
+
+    if len(rel.parts) == 1 and name in AUTO_INCLUDE_MARKDOWN_NAMES:
+        return True
+
+    return len(rel.parts) > 1 and rel.parts[0].lower() == "docs"
+
+
+def collect_markdown_files(root: Path, auto_include: bool) -> list[Path]:
+    files = []
+
+    for path in sorted(root.rglob("*.md")):
+        if should_ignore(path):
+            continue
+
+        if not path.is_file():
+            continue
+
+        if is_auto_include_markdown(path, root) == auto_include:
+            files.append(path)
+
+    return files
+
+
+def collect_auto_markdown_files(root: Path) -> list[Path]:
+    return collect_markdown_files(root, auto_include=True)
+
+
+def collect_optional_markdown_files(root: Path) -> list[Path]:
+    return collect_markdown_files(root, auto_include=False)
 
 
 def build_tree(root: Path, max_files: int = 300) -> str:
@@ -123,9 +169,13 @@ def read_relevant_files(
     max_file_size: int = 120_000,
     max_chars_per_file: int = 12_000,
     max_total_chars: int = 250_000,
+    selected_optional_markdown_files: set[Path] | None = None,
 ) -> str:
     chunks = []
     total_chars = 0
+    selected_markdown_files = {
+        path.resolve() for path in selected_optional_markdown_files or set()
+    }
 
     for path in sorted(root.rglob("*")):
         if should_ignore(path):
@@ -136,6 +186,11 @@ def read_relevant_files(
 
         if path.suffix.lower() not in ALLOWED_EXTENSIONS:
             continue
+
+        if path.suffix.lower() == ".md":
+            is_selected_optional = path.resolve() in selected_markdown_files
+            if not is_auto_include_markdown(path, root) and not is_selected_optional:
+                continue
 
         if path.stat().st_size > max_file_size:
             continue
