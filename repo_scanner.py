@@ -52,9 +52,45 @@ ALLOWED_EXTENSIONS = {
     ".html", ".css", ".scss", ".sql", ".sh", ".bash", ".ps1",
 }
 
+LANGUAGE_PATTERNS = {
+    "Python": ("*.py",),
+    "JS/TS": ("*.js", "*.jsx", "*.ts", "*.tsx", "*.mjs", "*.cjs"),
+    "C#": ("*.cs",),
+    "C/C++": ("*.c", "*.h", "*.cpp", "*.hpp", "*.cc", "*.hh"),
+    "Java/Kotlin": ("*.java", "*.kt", "*.kts", "*.gradle"),
+    "Go": ("*.go",),
+    "Rust": ("*.rs",),
+    "Ruby": ("*.rb",),
+    "PHP": ("*.php",),
+    "Web": ("*.html", "*.css", "*.scss"),
+    "SQL": ("*.sql",),
+    "Shell/script": ("*.sh", "*.bash", "*.ps1"),
+}
+
 
 def should_ignore(path: Path) -> bool:
     return any(part in IGNORED_DIRS for part in path.parts)
+
+
+def count_relevant_files(root: Path, patterns: tuple[str, ...]) -> int:
+    count = 0
+
+    for pattern in patterns:
+        for path in root.rglob(pattern):
+            if should_ignore(path):
+                continue
+
+            if path.is_file():
+                count += 1
+
+    return count
+
+
+def get_language_file_counts(root: Path) -> dict[str, int]:
+    return {
+        language: count_relevant_files(root, patterns)
+        for language, patterns in LANGUAGE_PATTERNS.items()
+    }
 
 
 def build_tree(root: Path, max_files: int = 300) -> str:
@@ -126,38 +162,73 @@ def read_relevant_files(
 
 def detect_project_types(root: Path) -> list[str]:
     detected = []
+    counts = get_language_file_counts(root)
+
+    def add(label: str) -> None:
+        if label not in detected:
+            detected.append(label)
 
     if (root / "package.json").exists():
-        detected.append("Node.js / JavaScript / TypeScript")
+        add("Node.js / JavaScript / TypeScript")
+    elif counts["JS/TS"] >= 3:
+        add("JavaScript / TypeScript")
 
     if (root / "requirements.txt").exists() or (root / "pyproject.toml").exists():
-        detected.append("Python")
+        add("Python")
+    elif counts["Python"] >= 2:
+        add("Python")
+    elif counts["Python"] == 1 and counts["JS/TS"] == 0:
+        add("Python")
 
     if (root / "Assets").exists() and (root / "ProjectSettings").exists():
-        detected.append("Unity")
+        add("Unity")
 
-    if any(root.rglob("*.csproj")) or any(root.rglob("*.sln")):
-        detected.append(".NET / C#")
-    
-    if any(root.rglob("*.py")) and "Python" not in detected:
-        detected.append("Python")
+    has_dotnet_project = (
+        count_relevant_files(root, ("*.csproj",)) > 0
+        or count_relevant_files(root, ("*.sln",)) > 0
+    )
+    if has_dotnet_project:
+        add(".NET / C#")
+    elif counts["C#"] >= 3:
+        add("C#")
 
-    if any(root.rglob("*.js")) and "Node.js / JavaScript / TypeScript" not in detected:
-        detected.append("JavaScript")
+    if counts["C/C++"] >= 3:
+        add("C/C++")
 
     if (root / "go.mod").exists():
-        detected.append("Go")
+        add("Go")
+    elif counts["Go"] >= 2:
+        add("Go")
 
     if (root / "Cargo.toml").exists():
-        detected.append("Rust")
+        add("Rust")
+    elif counts["Rust"] >= 2:
+        add("Rust")
 
     if (root / "pom.xml").exists():
-        detected.append("Java / Maven")
+        add("Java / Maven")
 
     if (root / "build.gradle").exists() or (root / "settings.gradle").exists():
-        detected.append("Java/Kotlin / Gradle")
+        add("Java/Kotlin / Gradle")
+    elif counts["Java/Kotlin"] >= 3:
+        add("Java/Kotlin")
+
+    if counts["Ruby"] >= 2:
+        add("Ruby")
+
+    if counts["PHP"] >= 2:
+        add("PHP")
+
+    if counts["Web"] >= 3:
+        add("Web")
+
+    if counts["SQL"] >= 2:
+        add("SQL")
+
+    if counts["Shell/script"] >= 2:
+        add("Shell/scripts")
 
     if (root / "Dockerfile").exists() or (root / "docker-compose.yml").exists():
-        detected.append("Docker")
+        add("Docker")
 
     return detected

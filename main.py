@@ -1,7 +1,12 @@
 import argparse
 from pathlib import Path
 
-from repo_scanner import build_tree, read_relevant_files, detect_project_types
+from repo_scanner import (
+    build_tree,
+    read_relevant_files,
+    detect_project_types,
+    get_language_file_counts,
+)
 from prompts import build_repo_explanation_prompt
 from llm_client import ask_llm, get_model_name
 
@@ -25,12 +30,25 @@ def parse_args() -> argparse.Namespace:
 
 def print_prompt_debug_info(
     project_types: list[str],
+    language_counts: dict[str, int],
     tree: str,
     file_contents: str,
     prompt: str,
 ) -> None:
     detected = ", ".join(project_types) or "Unknown"
     print(f"Detected project types: {detected}")
+    print(f"Python files found: {language_counts['Python']}")
+    print(f"JS/TS files found: {language_counts['JS/TS']}")
+    print(f"C# files found: {language_counts['C#']}")
+    print(f"C/C++ files found: {language_counts['C/C++']}")
+    print(f"Java/Kotlin files found: {language_counts['Java/Kotlin']}")
+    print(f"Go files found: {language_counts['Go']}")
+    print(f"Rust files found: {language_counts['Rust']}")
+    print(f"Ruby files found: {language_counts['Ruby']}")
+    print(f"PHP files found: {language_counts['PHP']}")
+    print(f"Web files found: {language_counts['Web']}")
+    print(f"SQL files found: {language_counts['SQL']}")
+    print(f"Shell/script files found: {language_counts['Shell/script']}")
     print(f"Folder tree character count: {len(tree)}")
     print(f"Selected file contents character count: {len(file_contents)}")
     print(f"Total prompt character count: {len(prompt)}")
@@ -51,6 +69,7 @@ def main() -> None:
 
     print("Scanning repo...")
     tree = build_tree(repo_path)
+    language_counts = get_language_file_counts(repo_path)
     project_types = detect_project_types(repo_path)
     file_contents = read_relevant_files(
         repo_path,
@@ -68,7 +87,7 @@ def main() -> None:
     output_dir = Path("outputs")
     output_dir.mkdir(exist_ok=True)
 
-    print_prompt_debug_info(project_types, tree, file_contents, prompt)
+    print_prompt_debug_info(project_types, language_counts, tree, file_contents, prompt)
 
     if args.dry_run:
         debug_prompt_file = output_dir / "debug_prompt.txt"
