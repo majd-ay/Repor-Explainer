@@ -9,6 +9,9 @@ from repo_scanner import (
     get_language_file_counts,
     collect_auto_markdown_files,
     collect_optional_markdown_files,
+    find_node_project_dirs,
+    find_unity_project_dirs,
+    find_relevant_files,
 )
 from prompts import build_repo_explanation_prompt
 from llm_client import ask_llm, get_model_name
@@ -89,6 +92,10 @@ def print_prompt_debug_info(
     auto_markdown_count: int,
     optional_markdown_count: int,
     selected_optional_markdown_count: int,
+    node_project_dirs: list[Path],
+    unity_project_dirs: list[Path],
+    dotnet_project_files: list[Path],
+    repo_path: Path,
     tree: str,
     file_contents: str,
     prompt: str,
@@ -110,6 +117,24 @@ def print_prompt_debug_info(
     print(f"Auto-included Markdown files: {auto_markdown_count}")
     print(f"Optional Markdown files found: {optional_markdown_count}")
     print(f"Selected optional Markdown files: {selected_optional_markdown_count}")
+    print("Node projects found:")
+    if node_project_dirs:
+        for path in node_project_dirs:
+            print(f"- {path.relative_to(repo_path)}")
+    else:
+        print("- none")
+    print("Unity projects found:")
+    if unity_project_dirs:
+        for path in unity_project_dirs:
+            print(f"- {path.relative_to(repo_path)}")
+    else:
+        print("- none")
+    print(".NET project files found:")
+    if dotnet_project_files:
+        for path in dotnet_project_files:
+            print(f"- {path.relative_to(repo_path)}")
+    else:
+        print("- none")
     print(f"Folder tree character count: {len(tree)}")
     print(f"Selected file contents character count: {len(file_contents)}")
     print(f"Total prompt character count: {len(prompt)}")
@@ -135,6 +160,9 @@ def main() -> None:
     language_counts = get_language_file_counts(repo_path)
     auto_markdown_files = collect_auto_markdown_files(repo_path)
     optional_markdown_files = collect_optional_markdown_files(repo_path)
+    node_project_dirs = find_node_project_dirs(repo_path)
+    unity_project_dirs = find_unity_project_dirs(repo_path)
+    dotnet_project_files = find_relevant_files(repo_path, ("*.sln", "*.csproj"))
     selected_optional_markdown_files = choose_optional_markdown_files(
         repo_path,
         optional_markdown_files,
@@ -163,6 +191,10 @@ def main() -> None:
         len(auto_markdown_files),
         len(optional_markdown_files),
         len(selected_optional_markdown_files),
+        node_project_dirs,
+        unity_project_dirs,
+        dotnet_project_files,
+        repo_path,
         tree,
         file_contents,
         prompt,

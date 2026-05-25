@@ -73,23 +73,70 @@ AUTO_INCLUDE_MARKDOWN_NAMES = {
     "license.md",
 }
 
+LOCK_FILE_NAMES = {
+    "package-lock.json",
+    "packages-lock.json",
+    "yarn.lock",
+    "pnpm-lock.yaml",
+    "bun.lockb",
+}
+
 
 def should_ignore(path: Path) -> bool:
     return any(part in IGNORED_DIRS for part in path.parts)
 
 
 def count_relevant_files(root: Path, patterns: tuple[str, ...]) -> int:
-    count = 0
+    return len(find_relevant_files(root, patterns))
+
+
+def find_relevant_files(root: Path, patterns: tuple[str, ...]) -> list[Path]:
+    files = []
+    seen = set()
 
     for pattern in patterns:
         for path in root.rglob(pattern):
             if should_ignore(path):
                 continue
 
-            if path.is_file():
-                count += 1
+            resolved = path.resolve()
+            if path.is_file() and resolved not in seen:
+                files.append(path)
+                seen.add(resolved)
 
-    return count
+    return sorted(files)
+
+
+def find_dirs_named(root: Path, names: set[str]) -> list[Path]:
+    lowered_names = {name.lower() for name in names}
+    dirs = []
+    seen = set()
+
+    for path in root.rglob("*"):
+        if should_ignore(path):
+            continue
+
+        resolved = path.resolve()
+        if path.is_dir() and path.name.lower() in lowered_names and resolved not in seen:
+            dirs.append(path)
+            seen.add(resolved)
+
+    return sorted(dirs)
+
+
+def find_node_project_dirs(root: Path) -> list[Path]:
+    return sorted({path.parent for path in find_relevant_files(root, ("package.json",))})
+
+
+def find_unity_project_dirs(root: Path) -> list[Path]:
+    project_dirs = set()
+
+    for assets_dir in find_dirs_named(root, {"Assets"}):
+        project_dir = assets_dir.parent
+        if (project_dir / "ProjectSettings").is_dir():
+            project_dirs.add(project_dir)
+
+    return sorted(project_dirs)
 
 
 def get_language_file_counts(root: Path) -> dict[str, int]:
@@ -139,6 +186,39 @@ def collect_optional_markdown_files(root: Path) -> list[Path]:
     return collect_markdown_files(root, auto_include=False)
 
 
+def is_lock_file(path: Path) -> bool:
+    return path.name.lower() in LOCK_FILE_NAMES
+
+
+def selected_file_sort_key(path: Path, root: Path) -> tuple[int, str]:
+    rel = path.relative_to(root)
+    rel_parts = tuple(part.lower() for part in rel.parts)
+    rel_text = rel.as_posix().lower()
+    name = path.name.lower()
+    suffix = path.suffix.lower()
+
+    if suffix == ".md" and is_auto_include_markdown(path, root):
+        priority = 0
+    elif name == "package.json":
+        priority = 1
+    elif name in {"server.mjs", "server.js", "app.js", "app.ts", "index.js", "index.ts", "index.mjs"}:
+        priority = 2
+    elif suffix == ".cs" and "assets" in rel_parts and "scripts" in rel_parts:
+        priority = 3
+    elif rel_text.endswith("packages/manifest.json"):
+        priority = 4
+    elif rel_text.endswith("projectsettings/projectversion.txt"):
+        priority = 5
+    elif suffix in {".sln", ".csproj"}:
+        priority = 6
+    elif suffix in {".prefab", ".asset", ".unity"}:
+        priority = 80
+    else:
+        priority = 20
+
+    return priority, rel_text
+
+
 def build_tree(root: Path, max_files: int = 300) -> str:
     lines = []
     file_count = 0
@@ -177,11 +257,16 @@ def read_relevant_files(
         path.resolve() for path in selected_optional_markdown_files or set()
     }
 
-    for path in sorted(root.rglob("*")):
+    candidate_paths = sorted(root.rglob("*"), key=lambda path: selected_file_sort_key(path, root))
+
+    for path in candidate_paths:
         if should_ignore(path):
             continue
 
         if not path.is_file():
+            continue
+
+        if is_lock_file(path):
             continue
 
         if path.suffix.lower() not in ALLOWED_EXTENSIONS:
@@ -218,31 +303,31 @@ def read_relevant_files(
 def detect_project_types(root: Path) -> list[str]:
     detected = []
     counts = get_language_file_counts(root)
+    node_project_dirs = find_node_project_dirs(root)
+    unity_project_dirs = find_unity_project_dirs(root)
+    dotnet_project_files = find_relevant_files(root, ("*.csproj", "*.sln"))
 
     def add(label: str) -> None:
         if label not in detected:
             detected.append(label)
 
-    if (root / "package.json").exists():
+    if node_project_dirs:
         add("Node.js / JavaScript / TypeScript")
     elif counts["JS/TS"] >= 3:
         add("JavaScript / TypeScript")
 
-    if (root / "requirements.txt").exists() or (root / "pyproject.toml").exists():
+    has_python_markers = bool(find_relevant_files(root, ("requirements.txt", "pyproject.toml")))
+    if has_python_markers:
         add("Python")
     elif counts["Python"] >= 2:
         add("Python")
     elif counts["Python"] == 1 and counts["JS/TS"] == 0:
         add("Python")
 
-    if (root / "Assets").exists() and (root / "ProjectSettings").exists():
+    if unity_project_dirs:
         add("Unity")
 
-    has_dotnet_project = (
-        count_relevant_files(root, ("*.csproj",)) > 0
-        or count_relevant_files(root, ("*.sln",)) > 0
-    )
-    if has_dotnet_project:
+    if dotnet_project_files:
         add(".NET / C#")
     elif counts["C#"] >= 3:
         add("C#")
@@ -250,20 +335,20 @@ def detect_project_types(root: Path) -> list[str]:
     if counts["C/C++"] >= 3:
         add("C/C++")
 
-    if (root / "go.mod").exists():
+    if find_relevant_files(root, ("go.mod",)):
         add("Go")
     elif counts["Go"] >= 2:
         add("Go")
 
-    if (root / "Cargo.toml").exists():
+    if find_relevant_files(root, ("Cargo.toml",)):
         add("Rust")
     elif counts["Rust"] >= 2:
         add("Rust")
 
-    if (root / "pom.xml").exists():
+    if find_relevant_files(root, ("pom.xml",)):
         add("Java / Maven")
 
-    if (root / "build.gradle").exists() or (root / "settings.gradle").exists():
+    if find_relevant_files(root, ("build.gradle", "settings.gradle")):
         add("Java/Kotlin / Gradle")
     elif counts["Java/Kotlin"] >= 3:
         add("Java/Kotlin")
@@ -283,7 +368,7 @@ def detect_project_types(root: Path) -> list[str]:
     if counts["Shell/script"] >= 2:
         add("Shell/scripts")
 
-    if (root / "Dockerfile").exists() or (root / "docker-compose.yml").exists():
+    if find_relevant_files(root, ("Dockerfile", "docker-compose.yml")):
         add("Docker")
 
     return detected
